@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+sqlalchemy
+pyodbc
+python-jose
+passlib[bcrypt]
+requests
+PyPDF2
+openai
+pydantic
+PyJWT
+python-dotenv

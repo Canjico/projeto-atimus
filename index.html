@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Atimus - Portal de Editais</title>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+<link rel="stylesheet" href="./css/style.css" />
+</head>
+
+<body>
+
+<div class="background-overlay"></div>
+
+<header>
+    <div class="logo-area">
+        <img src="./assets/img/icons/Atimus5.png" alt="Logo Atimus" style="max-width:150px;">
+    </div>
+
+    <div class="search-area">
+        <input type="text" id="search" placeholder="Buscar editais">
+    </div>
+</header>
+
+<main class="main-container">
+
+    <aside class="filter-sidebar-compact">
+    <h2>Filtros</h2>
+
+    <ul id="filter-list">
+
+        <li>
+            <div class="filter-summary">Estados <i class="fas fa-chevron-right"></i></div>
+            <div class="filter-options-wrapper">
+                <div class="filter-options-compact" data-filter-type="estado">
+                    <label><input type="checkbox" value="AC"> Acre - AC</label>
+                    <label><input type="checkbox" value="AL"> Alagoas - AL</label>
+                    <label><input type="checkbox" value="AP"> Amapá - AP</label>
+                    <label><input type="checkbox" value="AM"> Amazonas - AM</label>
+                    <label><input type="checkbox" value="BA"> Bahia - BA</label>
+                    <label><input type="checkbox" value="CE"> Ceará - CE</label>
+                    <label><input type="checkbox" value="DF"> Distrito Federal - DF</label>
+                    <label><input type="checkbox" value="ES"> Espírito Santo - ES</label>
+                    <label><input type="checkbox" value="GO"> Goiás - GO</label>
+                    <label><input type="checkbox" value="MA"> Maranhão - MA</label>
+                    <label><input type="checkbox" value="MT"> Mato Grosso - MT</label>
+                    <label><input type="checkbox" value="MS"> Mato Grosso do Sul - MS</label>
+                    <label><input type="checkbox" value="MG"> Minas Gerais - MG</label>
+                    <label><input type="checkbox" value="PA"> Pará - PA</label>
+                    <label><input type="checkbox" value="PB"> Paraíba - PB</label>
+                    <label><input type="checkbox" value="PR"> Paraná - PR</label>
+                    <label><input type="checkbox" value="PE"> Pernambuco - PE</label>
+                    <label><input type="checkbox" value="PI"> Piauí - PI</label>
+                    <label><input type="checkbox" value="RJ"> Rio de Janeiro - RJ</label>
+                    <label><input type="checkbox" value="RN"> Rio Grande do Norte - RN</label>
+                    <label><input type="checkbox" value="RS"> Rio Grande do Sul - RS</label>
+                    <label><input type="checkbox" value="RO"> Rondônia - RO</label>
+                    <label><input type="checkbox" value="RR"> Roraima - RR</label>
+                    <label><input type="checkbox" value="SC"> Santa Catarina - SC</label>
+                    <label><input type="checkbox" value="SP"> São Paulo - SP</label>
+                    <label><input type="checkbox" value="SE"> Sergipe - SE</label>
+                    <label><input type="checkbox" value="TO"> Tocantins - TO</label>
+                </div>
+            </div>
+        </li>
+
+        <li>
+            <div class="filter-summary">Categoria <i class="fas fa-chevron-right"></i></div>
+            <div class="filter-options-wrapper">
+                <div class="filter-options-compact" data-filter-type="area">
+
+                    <label><input type="checkbox" value="Governo e Politicas Publicas"> Governo & Políticas Públicas</label>
+                    <label><input type="checkbox" value="Administracao e Gestao"> Administração & Gestão</label>
+                    <label><input type="checkbox" value="Tecnologia e Inovacao"> Tecnologia & Inovação</label>
+                    <label><input type="checkbox" value="Educacao e Capacitacao"> Educação & Capacitação</label>
+                    <label><input type="checkbox" value="Saude e Bem-Estar"> Saúde & Bem-Estar</label>
+                    <label><input type="checkbox" value="Meio Ambiente e Sustentabilidade"> Meio Ambiente & Sustentabilidade</label>
+                    <label><input type="checkbox" value="Agricultura e Desenvolvimento Rural"> Agricultura & Desenvolvimento Rural</label>
+                    <label><input type="checkbox" value="Infraestrutura, Obras e Engenharia"> Infraestrutura, Obras & Engenharia</label>
+                    <label><input type="checkbox" value="Logistica, Suprimentos e Operacoes"> Logística, Suprimentos & Operações</label>
+                    <label><input type="checkbox" value="Economia, Financas e Licitacoes"> Economia, Finanças & Licitações</label>
+                    <label><input type="checkbox" value="Ciencia, Pesquisa e Desenvolvimento"> Ciência, Pesquisa & Desenvolvimento</label>
+                    <label><input type="checkbox" value="Social, Direitos e Comunidade"> Social, Direitos & Comunidade</label>
+                    <label><input type="checkbox" value="Cultura, Arte e Patrimonio"> Cultura, Arte & Patrimônio</label>
+                    <label><input type="checkbox" value="Esporte, Lazer e Qualidade de Vida"> Esporte, Lazer & Qualidade de Vida</label>
+                    <label><input type="checkbox" value="Cooperacao e Relacoes Internacionais"> Cooperação & Relações Internacionais</label>
+
+                </div>
+            </div>
+        </li>
+
+
+        <li>
+            <div class="filter-summary">Instituição <i class="fas fa-chevron-right"></i></div>
+            <div class="filter-options-wrapper">
+                <div class="filter-options-compact" data-filter-type="instituicao">
+                    <label><input type="checkbox" value="FINEP"> FINEP</label>
+                    <label><input type="checkbox" value="FAPESP"> FAPESP</label>
+                    <label><input type="checkbox" value="FAPEMIG"> FAPEMIG</label>
+                    <label><input type="checkbox" value="Araucaria"> Araucária</label>
+                    <label><input type="checkbox" value="FAPEG"> FAPEG</label>
+                    <label><input type="checkbox" value="FAPERGS"> FAPERGS</label>
+                    <label><input type="checkbox" value="FAPEAL"> FAPEAL</label>
+                    <label><input type="checkbox" value="FAPESB"> FAPESB</label>
+                    <label><input type="checkbox" value="FAPESC"> FAPESC</label>
+                    <label><input type="checkbox" value="FAPT"> FAPT</label>
+                    <label><input type="checkbox" value="FUNCAP"> FUNCAP</label>
+                    <label><input type="checkbox" value="FAPEMA"> FAPEMA</label>
+                    <label><input type="checkbox" value="FACEPE"> FACEPE</label>
+                    <label><input type="checkbox" value="FAPES"> FAPES</label>
+                    <label><input type="checkbox" value="FAPERO"> FAPERO</label>
+                    <label><input type="checkbox" value="FUNDECT"> FUNDECT</label>
+                    <label><input type="checkbox" value="FAPESQ"> FAPESQ</label>
+                    <label><input type="checkbox" value="FAPEAP"> FAPEAP</label>
+                    <label><input type="checkbox" value="FAPEAM"> FAPEAM</label>
+                    <label><input type="checkbox" value="FAPEPI"> FAPEPI</label>
+                    <label><input type="checkbox" value="FAPERJ"> FAPERJ</label>
+                    <label><input type="checkbox" value="FAPERN"> FAPERN</label>
+                    <label><input type="checkbox" value="FAPITEC"> FAPITEC</label>
+                    <label><input type="checkbox" value="CONFAP"> CONFAP</label>
+                    <label><input type="checkbox" value="Senai"> SENAI</label>
+                    <label><input type="checkbox" value="Serpro"> SERPRO</label>
+                    <label><input type="checkbox" value="AwesomeFoundation"> Awesome Foundation</label>
+                    <label><input type="checkbox" value="BASF"> BASF</label>
+                    <label><input type="checkbox" value="BNDES"> BNDES</label>
+                    <label><input type="checkbox" value="Prosas"> Prosas</label>
+                    <label><input type="checkbox" value="TetraPak"> Tetra Pak</label>
+                    <label><input type="checkbox" value="CocaCola"> Coca-Cola</label>
+                    <label><input type="checkbox" value="IAF"> IAF</label>
+                    <label><input type="checkbox" value="CAPES"> CAPES</label>
+                    <label><input type="checkbox" value="BRICS"> BRICS</label>
+                    <label><input type="checkbox" value="Santander"> Santander</label>
+                    <label><input type="checkbox" value="BancoDoNordeste"> Banco do Nordeste</label>
+                    <label><input type="checkbox" value="BRDE"> BRDE</label>
+                    <label><input type="checkbox" value="Cresol"> Cresol</label>
+                    <label><input type="checkbox" value="Correios"> Correios</label>
+                    <label><input type="checkbox" value="Petrobras"> Petrobras</label>
+                    <label><input type="checkbox" value="ANP"> ANP</label>
+                    <label><input type="checkbox" value="MiningHub"> Mining Hub</label>
+                    <label><input type="checkbox" value="VALE"> VALE</label>
+                    <label><input type="checkbox" value="Inovale"> Inovale</label>
+                    <label><input type="checkbox" value="Ambev"> Ambev</label>
+                </div>
+            </div>
+        </li>
+
+        <li>
+            <div class="filter-summary">Situação <i class="fas fa-chevron-right"></i></div>
+            <div class="filter-options-wrapper">
+                <div class="filter-options-compact" data-filter-type="tipo">
+                    <label><input type="checkbox" value="Concurso"> Aberto</label>
+                    <label><input type="checkbox" value="Licitação"> Em andamento </label>
+                    <label><input type="checkbox" value="Seletivo"> Fechado</label>
+                </div>
+        </li>
+
+    </ul>
+</aside>
+    <!-- ÚNICO container de cards -->
+    <section id="editais-container" class="notice-grid">
+        <!-- notice-card entra AQUI via main.js -->
+    </section>
+
+</main>
+
+<button class="filter-toggle-btn" id="filter-toggle-btn">
+    <i class="fas fa-filter"></i> Filtros
+</button>
+
+<footer>
+    © 2025 Atimus — Todos os direitos reservados
+</footer>
+
+<!-- Libs -->
+<script src="https://cdn.jsdelivr.net/npm/fuse.js/dist/fuse.basic.min.js"></script>
+
+<!-- ÚNICO cérebro da aplicação -->
+<script type="module" src="./js/main.js"></script>
+
+<!-- Modal -->
+<div id="modal-overlay" class="modal-overlay">
+    <div id="edital-modal" class="edital-modal">
+        <button id="modal-close-btn" class="modal-close-btn">&times;</button>
+        <div id="modal-content-container"></div>
+    </div>
+</div>
+
+<!-- CHATBOT WRAPPER -->
+<div class="e-contact-buttons__content-wrapper" id="chatbot-wrapper">
+    
+    <!-- Cabeçalho do Chat -->
+    <div class="chat-header">
+        Assistente de Editais (IA)
+    </div>
+    
+    <!-- Container de Mensagens -->
+    <div id="chatbot-messages" class="chat-messages"></div>
+    
+    <!-- Formulário de Envio -->
+    <form class="chat-input-area" id="chat-form">
+        <input type="text" id="chat-input" placeholder="Pergunte sobre editais...">
+        <button id="send-button" type="button">
+            <i class="fas fa-paper-plane"></i>
+        </button>
+    </form>
+</div>
+
+<!-- BOTÃO DO MASCOTE -->
+<div class="e-contact-buttons__chat-button-container">
+    <button class="e-contact-buttons__chat-button" aria-controls="chatbot-wrapper" type="button">
+        <img src="./assets/mascote.jpg" alt="Mascote Chatbot Atimus" class="chat-mascote-icon">
+    </button>
+</div>
+
+
+</body>
+</html>

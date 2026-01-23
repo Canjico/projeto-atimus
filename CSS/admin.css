@@ -1,0 +1,144 @@
+/* =========================================================
+   admin.css - Estilos Exclusivos do Painel Administrativo
+   ========================================================= */
+
+/* Ajuste do Container Principal para Admin */
+body.admin-mode .main-container {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    padding-top: 20px;
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+/* Grid de Cards no Admin */
+body.admin-mode .notice-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1.5rem;
+    width: 100%;
+    justify-content: center;
+}
+
+/* Estilos do Cabeçalho Admin */
+.admin-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+/* Botões */
+.add-btn {
+    background-color: #25D366;
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: transform 0.2s;
+}
+.add-btn:hover { transform: scale(1.05); }
+
+.logout-btn {
+    background-color: #ff4d4d;
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+/* Formulários e Modal */
+.admin-form-group {
+    margin-bottom: 15px;
+}
+.admin-form-group label {
+    display: block;
+    margin-bottom: 5px;
+    color: #f6ad55;
+    font-weight: bold;
+}
+.admin-form-group input, 
+.admin-form-group textarea,
+.admin-form-group select {
+    width: 100%;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(0,0,0,0.3);
+    color: white;
+    font-family: inherit;
+}
+.admin-form-group textarea {
+    resize: vertical;
+    min-height: 100px;
+}
+
+/* Container para alinhar campos lado a lado */
+.admin-form-row {
+    display: flex;
+    gap: 50px; /* DISTÂNCIA ENTRE OS CAMPOS */
+    width: 100%;
+}
+
+/* Garante que os campos dividam o espaço igualmente */
+.admin-form-row .admin-form-group {
+    flex: 1;
+}
+
+/* Ajuste para celular: campos ficam um embaixo do outro */
+@media (max-width: 600px) {
+    .admin-form-row {
+        flex-direction: column;
+        gap: 0;
+    }
+}
+
+.admin-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+}
+.btn-save {
+    background-color: #25D366;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+}
+.btn-cancel {
+    background-color: #555;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+/* Botão de Editar no Card */
+.admin-card-btn {
+    background-color: #f6ad55;
+    color: #0c1a2c;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+    width: 100%;
+    margin-top: 10px;
+    transition: background 0.2s;
+}
+.admin-card-btn:hover {
+    background-color: #ffc27a;
+}

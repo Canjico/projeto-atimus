@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Atimus - Painel Admin</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <link rel="stylesheet" href="../css/style.css" />
+    <link rel="stylesheet" href="../css/admin.css" />
+</head>
+<body class="admin-mode">
+
+    <div class="background-overlay"></div>
+
+    <header>
+        <div class="admin-header">
+            <div class="logo-area">
+                <img src="../assets/img/icons/Atimus5.png" alt="Logo Atimus" style="max-width:120px;">
+                <span style="color:white; font-weight:bold; margin-left:10px;">PAINEL ADMINISTRATIVO</span>
+            </div>
+            <div style="display:flex; gap:15px; align-items:center;">
+                <span id="status" style="color:rgba(255,255,255,0.7);"></span>
+                <button id="logout" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Sair</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="main-container">
+        <div class="admin-toolbar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; width: 100%;">
+            <h2 style="color:white; margin:0;">Gerenciar Editais</h2>
+            <button onclick="abrirModalCriacao()" class="add-btn">
+                <i class="fas fa-plus"></i> Novo Edital
+            </button>
+        </div>
+
+        <section id="editais-container" class="notice-grid">
+            </section>
+    </main>
+
+    <div id="admin-modal-overlay" class="modal-overlay">
+        <div class="edital-modal">
+            <button id="admin-modal-close" class="modal-close-btn">&times;</button>
+            
+            <h2 id="modal-title">Editar Edital</h2>
+            
+            <form id="edital-form">
+                <input type="hidden" id="edital-id">
+
+                <div class="admin-form-group">
+                    <label>Título</label>
+                    <input type="text" id="edit-titulo" required placeholder="Ex: Edital de Inovação">
+                </div>
+
+                <div class="admin-form-group">
+                    <label>Descrição</label>
+                    <textarea id="edit-descricao" required placeholder="Não informado"></textarea>
+                </div>
+
+                <div class="admin-form-row">
+                    <div class="admin-form-group">
+                        <label>Estado (Sigla)</label>
+                        <input type="text" id="edit-estado" maxlength="2" placeholder="BR">
+                    </div>
+                    <div class="admin-form-group">
+                        <label>Categoria/Área</label>
+                        <input type="text" id="edit-area" placeholder="undefined">
+                    </div>
+                </div>
+
+                <div class="admin-form-row">
+                    <div class="admin-form-group">
+                        <label>Apoio</label>
+                        <select id="edit-apoio">
+                            <option value="">Selecione...</option>
+                            <option value="Federal">Federal</option>
+                            <option value="Estadual">Estadual</option>
+                            <option value="Municipal">Municipal</option>
+                            <option value="Privado">Privado</option>
+                        </select>
+                    </div>
+                    <div class="admin-form-group">
+                        <label>Tipo</label>
+                        <select id="edit-tipo">
+                            <option value="">Selecione...</option>
+                            <option value="Licitação">Licitação</option>
+                            <option value="Concurso">Concurso</option>
+                            <option value="Seletivo">Seletivo</option>
+                            <option value="Subvenção">Subvenção</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="admin-form-row">
+                    <div class="admin-form-group">
+                        <label>Data Limite (AAAA-MM-DD)</label>
+                        <input type="date" id="edit-data">
+                    </div>
+                    <div class="admin-form-group">
+                        <label>Valor Total</label>
+                        <input type="text" id="edit-valor" placeholder="Não informado">
+                    </div>
+                </div>
+                
+                <div class="admin-form-group">
+                    <label>Link PDF (URL)</label>
+                    <input type="text" id="edit-pdf" placeholder="http://...">
+                </div>
+
+                <div class="admin-form-group">
+                    <label>Tags (separadas por vírgula)</label>
+                    <input type="text" id="edit-tags" placeholder="tag1, tag2...">
+                </div>
+
+                <div class="admin-actions">
+                    <button type="button" class="btn-cancel" id="btn-cancelar">Cancelar</button>
+                    <button type="submit" class="btn-save">Salvar Alterações</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="js/admin.js"></script>
+    <script type="module" src="js/render_admin.js"></script>
+</body>
+</html>
