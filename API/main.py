@@ -25,7 +25,6 @@ app = FastAPI()
 def ping():
     return {"status": "ok", "message": "API no ar!"}
 
-
 # =========================
 # Logging
 # =========================
