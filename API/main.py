@@ -23,7 +23,7 @@ app = FastAPI()
 
 @app.get("/ping")
 def ping():
-    return {"status": "ok"}
+    return {"status": "ok", "message": "API no ar!"}
 
 
 # =========================
