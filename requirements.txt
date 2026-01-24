@@ -9,3 +9,6 @@ PyPDF2
 openai
 pydantic
 python-dotenv
+gunicorn
+uvicorn[standard]
+fastapi
