@@ -19,6 +19,13 @@ from .database import engine, get_db
 from .models import Base, Edital, User
 from .auth import verificar_senha, criar_token, get_current_user
 
+app = FastAPI()
+
+@app.get("/ping")
+def ping():
+    return {"status": "ok"}
+
+
 # =========================
 # Logging
 # =========================
