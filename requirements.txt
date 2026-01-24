@@ -1,7 +1,11 @@
 fastapi
-uvicorn[standard]
+gunicorn
 sqlalchemy
+pyodbc
+python-jose[cryptography]
+passlib[bcrypt]
 requests
-python-dotenv
 PyPDF2
 openai
+pydantic
+python-dotenv
