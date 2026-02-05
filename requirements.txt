@@ -1,12 +1,18 @@
 fastapi
-gunicorn
-sqlalchemy
-pyodbc
-python-jose[cryptography]
-passlib[bcrypt]
-requests
-PyPDF2
-openai
-pydantic
-python-dotenv
 uvicorn[standard]
+sqlalchemy
+requests
+python-jose[cryptography]
+
+# Versões fixas para evitar erro de 'AttributeError' e limitar senha a 72 bytes
+passlib==1.7.4
+bcrypt==3.2.2
+
+# Azure OpenAI
+openai>=1.0.0
+
+# Processamento de PDF
+PyPDF2
+
+# Driver SQL Server
+pyodbc
