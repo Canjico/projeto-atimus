@@ -21,19 +21,13 @@ from .models import Base, Edital, User, Cliente
 from .auth import verificar_senha, hash_senha, criar_token, get_current_user
 
 # =========================
-# Configuração de Ambiente
-# =========================
-ENV = os.getenv("ENV", "DEV") # 'PROD' ou 'DEV'
-IS_PROD = ENV == "PROD"
-
-# =========================
 # App Initialization
 # =========================
 app = FastAPI(title="API de Editais + Chatbot")
 
 @app.get("/ping")
 def ping():
-    return {"status": "ok", "time": datetime.utcnow().isoformat(), "env": ENV}
+    return {"status": "ok", "time": datetime.utcnow().isoformat()}
 
 # =========================
 # Logging
@@ -42,44 +36,17 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("api")
 
 # =========================
-# Utils de URL
-# =========================
-def get_frontend_url():
-    """
-    Retorna a URL base do Frontend.
-    Em PROD, deve ser a URL do Azure Static Web App ou similar.
-    """
-    return os.getenv("FRONTEND_URL", "http://127.0.0.1:8000/static/index.html")
-
-def get_api_url():
-    """
-    Retorna a URL base da API.
-    Necessário para gerar links de verificação de e-mail corretos.
-    """
-    return os.getenv("API_URL", "http://127.0.0.1:8000")
-
-# =========================
 # CORS
 # =========================
-# Lista base de origens permitidas
-origins = [
-    "http://127.0.0.1:5500",
-    "http://localhost:5500",
-    "http://127.0.0.1:8000",
-    "http://localhost:8000",
-    "https://editais.atimus.agr.br",
-]
-
-# Adiciona URL do Frontend configurada no ambiente (se houver)
-frontend_env = os.getenv("FRONTEND_URL")
-if frontend_env:
-    # Remove path se houver (ex: http://site.com/index.html -> http://site.com)
-    base_origin = "/".join(frontend_env.split("/")[:3])
-    origins.append(base_origin)
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=[
+        "http://127.0.0.1:5500",
+        "http://localhost:5500",
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+        "https://editais.atimus.agr.br"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -139,7 +106,7 @@ class CadastroCliente(BaseModel):
     politica_ok: bool
 
 # =========================
-# Utils Auxiliares
+# Utils
 # =========================
 def parse_date(date_str):
     if not date_str:
@@ -149,9 +116,23 @@ def parse_date(date_str):
     except ValueError:
         return None
 
+def get_frontend_url():
+    # Prioriza variável de ambiente para flexibilidade no Azure
+    return os.getenv("FRONTEND_URL", "http://localhost:5500/index.html")
+
+def get_base_frontend_url():
+    # Retorna a URL base sem o arquivo index.html, para redirects de login
+    full_url = get_frontend_url()
+    if "/index.html" in full_url:
+        return full_url.replace("/index.html", "/")
+    return full_url
+
 def simular_envio_email(email: str, token: str):
-    api_base = get_api_url()
-    link = f"{api_base}/cliente/verificar-email?token={token}"
+    # Determina a URL base da API via variável de ambiente
+    base_api_url = os.getenv("BASE_API_URL", "http://127.0.0.1:8000")
+    
+    link = f"{base_api_url}/cliente/verificar-email?token={token}"
+    
     logger.info("====================================================")
     logger.info(f"[SIMULAÇÃO DE EMAIL] Para: {email}")
     logger.info(f"[AÇÃO] Clique no link para verificar: {link}")
@@ -171,7 +152,7 @@ async def log_requests(request: Request, call_next):
 # =========================
 @app.get("/")
 def root():
-    return {"msg": "API Atimus Online. Acesse /index.html se estiver servindo estático ou configure o frontend.", "env": ENV}
+    return {"msg": "API Atimus Online. Acesse /index.html se estiver servindo estático ou configure o frontend."}
 
 @app.get("/editais")
 def listar_editais(db: Session = Depends(get_db)):
@@ -218,15 +199,14 @@ def cliente_me(cliente_token: str | None = Cookie(default=None), db: Session = D
     if not cliente or not cliente.email_verificado:
         return {"logado": False}
     
-    # Redireciona para o Front configurado
-    redirect_url = get_frontend_url()
-    return {"logado": True, "nome": cliente.nome, "redirect": redirect_url}
+    # Redireciona para o frontend configurado no ambiente
+    return {"logado": True, "nome": cliente.nome, "redirect": get_base_frontend_url()}
 
 @app.post("/cliente/cadastro")
 def cadastro_cliente(dados: CadastroCliente, db: Session = Depends(get_db)):
     existente = db.query(Cliente).filter(or_(Cliente.email == dados.email, Cliente.cnpj == dados.cnpj)).first()
     if existente:
-        return JSONResponse(status_code=400, content={"detail": "E-mail ou CNPJ já cadastrados. Tente fazer login."})
+        return JSONResponse(status_code=400, content={"detail": "E-mail ou CNPJ já cadastrados. Tente fazer login."}) 
 
     verificacao_token = str(uuid.uuid4())
     novo_cliente = Cliente(
@@ -259,23 +239,19 @@ def login_cliente(dados: LoginCliente, db: Session = Depends(get_db)):
     cliente.token = sessao_token
     db.commit()
     
-    # URL de redirecionamento dinâmica
-    frontend_url = get_frontend_url()
+    # Usa URL base dinâmica
+    redirect_url = get_base_frontend_url()
+    response = JSONResponse(content={"redirect": redirect_url, "sucesso": True})
     
-    response = JSONResponse(content={"redirect": frontend_url, "sucesso": True})
-    
-    # Ajuste de Cookies para Azure/Prod (HTTPS) vs Local (HTTP)
-    # Em PROD (Azure), SameSite="None" e Secure=True são obrigatórios para cross-site cookies.
-    samesite_mode = "None" if IS_PROD else "lax"
-    secure_mode = True if IS_PROD else False
-    
+    # Ajuste para Cross-Site (Frontend no Storage/CDN e Backend no App Service)
+    # SameSite=None e Secure=True são obrigatórios para permitir cookies entre domínios diferentes com HTTPS.
     response.set_cookie(
         key="cliente_token", 
         value=sessao_token, 
         httponly=True, 
         max_age=60*60*24*30, 
-        samesite=samesite_mode, 
-        secure=secure_mode
+        samesite="none", 
+        secure=True
     )
     return response
 
@@ -286,18 +262,14 @@ def verificar_email(token: str, db: Session = Depends(get_db)):
         return JSONResponse(status_code=400, content={"detail": "Token inválido ou não encontrado."}) 
     if cliente.email_token_expiration and datetime.utcnow() > cliente.email_token_expiration:
         return JSONResponse(status_code=400, content={"detail": "Este link de verificação expirou."}) 
-    
     cliente.email_verificado = True
     cliente.email_token = None
     cliente.email_token_expiration = None
     db.commit()
     
-    # Redireciona para o Front real com parâmetro de sucesso
+    # Redireciona para o Frontend correto (Produção ou Local)
     frontend_url = get_frontend_url()
-    # Garante que frontend_url não aponte para arquivo específico se não quisermos, 
-    # mas aqui assumimos que aponta para a página principal ou index.html
-    sep = "&" if "?" in frontend_url else "?"
-    return RedirectResponse(url=f"{frontend_url}{sep}verificado=true")
+    return RedirectResponse(url=f"{frontend_url}?verificado=true")
 
 # =========================
 # Chat Geral (Busca SQL)
