@@ -1,6 +1,5 @@
 fastapi
 gunicorn
-uvicorn
 sqlalchemy
 pyodbc
 python-jose[cryptography]
@@ -10,3 +9,5 @@ PyPDF2
 openai
 pydantic
 python-dotenv
+gunicorn
+uvicorn[standard]
