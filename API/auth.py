@@ -23,8 +23,6 @@ JWT_SECRET = os.getenv("JWT_SECRET", "")
 # Segurança
 # =========================
 
-# ATENÇÃO: Requer passlib==1.7.4 e bcrypt==3.2.2 para evitar 
-# erro "AttributeError: module 'bcrypt' has no attribute '__about__'"
 pwd_context = CryptContext(
     schemes=["bcrypt"],
     deprecated="auto"
@@ -55,18 +53,15 @@ def _get_jwt_secret() -> str:
 def hash_senha(senha: str) -> str:
     """
     Gera hash bcrypt da senha.
-    O passlib espera string, não bytes. Truncamos a string em 72 caracteres
-    para evitar erros do algoritmo bcrypt com senhas longas.
+    Limita em 72 chars (limite do bcrypt).
     """
-    senha_truncada = senha[:72]
-    return pwd_context.hash(senha_truncada)
+    return pwd_context.hash(senha[:72])
 
 def verificar_senha(senha: str, senha_hash: str) -> bool:
     """
     Verifica se a senha confere com o hash.
     """
-    senha_truncada = senha[:72]
-    return pwd_context.verify(senha_truncada, senha_hash)
+    return pwd_context.verify(senha[:72], senha_hash)
 
 # =========================
 # JWT
