@@ -243,13 +243,13 @@ def login_cliente(dados: LoginCliente, db: Session = Depends(get_db)):
     # Ajuste para Cross-Site (Frontend no Storage/CDN e Backend no App Service)
     # SameSite=None e Secure=True são obrigatórios para permitir cookies entre domínios diferentes com HTTPS.
     response.set_cookie(
-        key="cliente_token", 
-        value=sessao_token, 
-        httponly=True, 
-        max_age=60*60*24*30, 
-        samesite="none", 
-        secure=True
+        key="cliente_token",
+        value=sessao_token,
+        httponly=True,
+        secure=True,     # obrigatoriamente True em produção
+        samesite="none"  # permite que seja usado entre subdomínios
     )
+
     return response
 
 @app.get("/cliente/verificar-email")
