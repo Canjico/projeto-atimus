@@ -212,7 +212,8 @@ async def log_requests(request: Request, call_next):
 # =========================
 @app.get("/ping")
 def ping():
-    return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
+    # UTC Now (Naive) para consistência
+    return {"status": "ok", "time": datetime.utcnow().isoformat()}
 
 @app.get("/health")
 def health_check(db: Session = Depends(get_db)):
@@ -296,7 +297,8 @@ def cliente_me(cliente_token: str | None = Cookie(default=None), db: Session = D
     if not cliente or not cliente.email_verificado:
         return {"logado": False}
     
-    now = datetime.now(timezone.utc)
+    # UTC Naive para evitar problemas com SQL Server
+    now = datetime.utcnow()
 
     # Verifica expiração
     if cliente.token_expiration and now > cliente.token_expiration:
@@ -320,7 +322,8 @@ def cadastro_cliente(dados: CadastroCliente, db: Session = Depends(get_db)):
 
     verificacao_token = str(uuid.uuid4())
     
-    # UX: Token expira em 72h (3 dias) para dar tempo ao usuário, conforme ajuste de produção
+    # UX: Token expira em 72h (3 dias)
+    # Usando UTC Naive para compatibilidade
     novo_cliente = Cliente(
         nome=dados.nome,
         email=dados.email,
@@ -331,7 +334,7 @@ def cadastro_cliente(dados: CadastroCliente, db: Session = Depends(get_db)):
         politica_ok=dados.politica_ok,
         email_verificado=False,
         email_token=verificacao_token,
-        email_token_expiration=datetime.now(timezone.utc) + timedelta(hours=72)
+        email_token_expiration=datetime.utcnow() + timedelta(hours=72)
     )
     db.add(novo_cliente)
     db.commit()
@@ -359,7 +362,8 @@ def login_cliente(dados: LoginCliente, db: Session = Depends(get_db)):
     sessao_token = str(uuid.uuid4())
     cliente.token = sessao_token
     # Define expiração para 30 dias (Segurança Corporativa)
-    cliente.token_expiration = datetime.now(timezone.utc) + timedelta(days=30)
+    # Usando UTC Naive
+    cliente.token_expiration = datetime.utcnow() + timedelta(days=30)
     
     # SECURITY: Se o usuário logou com senha, invalida qualquer pedido de recuperação pendente
     # Uso de getattr para evitar AttributeError se a coluna ainda não existir no objeto em memória
@@ -396,7 +400,8 @@ def verificar_email(token: str, db: Session = Depends(get_db)):
     if cliente.email_verificado:
         return RedirectResponse(url=f"{FRONTEND_LOGIN_URL}?verificado=true")
 
-    if cliente.email_token_expiration and datetime.now(timezone.utc) > cliente.email_token_expiration:
+    # Comparação UTC Naive
+    if cliente.email_token_expiration and datetime.utcnow() > cliente.email_token_expiration:
         return JSONResponse(status_code=400, content={"detail": "Este link de verificação expirou."}) 
     
     cliente.email_verificado = True
@@ -420,6 +425,7 @@ def esqueci_senha(req: EsqueciSenhaRequest, db: Session = Depends(get_db)):
 
     if cliente:
         # Anti-flood e Timing Protection:
+        # UTC Naive
         now = datetime.utcnow()
         # getattr para segurança contra inconsistência de schema
         exp = getattr(cliente, 'reset_token_expiration', None)
@@ -437,7 +443,8 @@ def esqueci_senha(req: EsqueciSenhaRequest, db: Session = Depends(get_db)):
         hashed_token = hash_token(raw_token)
 
         cliente.reset_token_hash = hashed_token
-        cliente.reset_token_expiration = (now + timedelta(minutes=30)).replace(tzinfo=None)
+        # UTC Naive
+        cliente.reset_token_expiration = now + timedelta(minutes=30)
         db.commit()
 
         # Envia o token RAW por e-mail
@@ -459,9 +466,10 @@ def redefinir_senha(req: RedefinirSenhaRequest, db: Session = Depends(get_db)):
     
     # IMPORTANTE: Aqui precisamos ter certeza que as colunas existem.
     # Como usamos auto-migration no startup, esperamos que sim.
+    # CORREÇÃO: Usar datetime.utcnow() para evitar erro de timezone no SQL Server
     cliente = db.query(Cliente).filter(
         Cliente.reset_token_hash == hashed_input,
-        Cliente.reset_token_expiration > datetime.now(timezone.utc)
+        Cliente.reset_token_expiration > datetime.utcnow()
     ).first()
     
     if not cliente:
