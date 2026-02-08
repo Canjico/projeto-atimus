@@ -3,7 +3,7 @@ import json
 import io
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import requests
 from fastapi import FastAPI, Depends, HTTPException, Body, Request, status, Cookie, Response
@@ -18,8 +18,8 @@ from PyPDF2 import PdfReader
 
 from .database import engine, get_db
 from .models import Base, Edital, User, Cliente
-from .auth import verificar_senha, hash_senha, criar_token, get_current_user
-from .email_service import enviar_email_verificacao
+from .auth import verificar_senha, hash_senha, criar_token, get_current_user, gerar_reset_token, hash_token
+from .email_service import enviar_email_verificacao, enviar_email_recuperacao
 
 # =========================
 # App Initialization
@@ -105,11 +105,20 @@ class ChatMessage(BaseModel):
 class CadastroCliente(BaseModel):
     nome: str
     email: str
-    senha: str = Field(..., min_length=6, max_length=12)
+    # Aumentado para 64 chars (Modern Standards)
+    senha: str = Field(..., min_length=6, max_length=64)
     celular: str
     cnpj: str
     contato_ok: bool
     politica_ok: bool
+
+class EsqueciSenhaRequest(BaseModel):
+    email: str
+
+class RedefinirSenhaRequest(BaseModel):
+    token: str
+    # Aumentado para 64 chars (Modern Standards)
+    nova_senha: str = Field(..., min_length=6, max_length=64)
 
 # =========================
 # Utils
@@ -122,14 +131,36 @@ def parse_date(date_str):
     except ValueError:
         return None
 
-def simular_envio_email(email: str, token: str):
+def mask_email(email: str) -> str:
+    """
+    Ofusca o e-mail para logs (LGPD/Privacy).
+    Ex: admin@atimus.agr.br -> ad***@atimus.agr.br
+    """
+    if not email or "@" not in email:
+        return "***"
+    try:
+        user, domain = email.split("@")
+        if len(user) <= 2:
+            return f"{user}***@{domain}"
+        return f"{user[:2]}***@{domain}"
+    except Exception:
+        return "***@***"
+
+def simular_envio_email(email: str, token: str, tipo: str = "verificacao"):
     # Fallback para caso o ACS não esteja configurado
-    base_api_url = os.getenv("BASE_API_URL", "http://127.0.0.1:8000")
-    link = f"{base_api_url}/cliente/verificar-email?token={token}"
+    if tipo == "verificacao":
+        base_api_url = os.getenv("BASE_API_URL", "http://127.0.0.1:8000")
+        link = f"{base_api_url}/cliente/verificar-email?token={token}"
+    else:
+        # Recuperação
+        if "?" in FRONTEND_LOGIN_URL:
+            link = f"{FRONTEND_LOGIN_URL}&reset_token={token}"
+        else:
+            link = f"{FRONTEND_LOGIN_URL}?reset_token={token}"
     
     logger.info("====================================================")
-    logger.info(f"[SIMULAÇÃO DE EMAIL - LOCAL] Para: {email}")
-    logger.info(f"[AÇÃO] Clique no link para verificar: {link}")
+    logger.info(f"[SIMULAÇÃO DE EMAIL - {tipo.upper()}] Para: {mask_email(email)}")
+    logger.info(f"[AÇÃO] Clique no link: {link}")
     logger.info("====================================================")
 
 # =========================
@@ -146,7 +177,7 @@ async def log_requests(request: Request, call_next):
 # =========================
 @app.get("/ping")
 def ping():
-    return {"status": "ok", "time": datetime.utcnow().isoformat()}
+    return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
 
 @app.get("/health")
 def health_check(db: Session = Depends(get_db)):
@@ -230,7 +261,7 @@ def cliente_me(cliente_token: str | None = Cookie(default=None), db: Session = D
     if not cliente or not cliente.email_verificado:
         return {"logado": False}
     
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     # Verifica expiração
     if cliente.token_expiration and now > cliente.token_expiration:
@@ -241,7 +272,7 @@ def cliente_me(cliente_token: str | None = Cookie(default=None), db: Session = D
     if cliente.token_expiration and (cliente.token_expiration - now).days < 5:
         cliente.token_expiration = now + timedelta(days=30)
         db.commit()
-        logger.info(f"Sessão renovada para cliente {cliente.id} ({cliente.email})")
+        logger.info(f"Sessão renovada para cliente {cliente.id} ({mask_email(cliente.email)})")
     
     # Retorna redirecionamento para o App Principal
     return {"logado": True, "nome": cliente.nome, "id": cliente.id, "redirect": FRONTEND_APP_URL}
@@ -265,7 +296,7 @@ def cadastro_cliente(dados: CadastroCliente, db: Session = Depends(get_db)):
         politica_ok=dados.politica_ok,
         email_verificado=False,
         email_token=verificacao_token,
-        email_token_expiration=datetime.utcnow() + timedelta(hours=72)
+        email_token_expiration=datetime.now(timezone.utc) + timedelta(hours=72)
     )
     db.add(novo_cliente)
     db.commit()
@@ -275,16 +306,16 @@ def cadastro_cliente(dados: CadastroCliente, db: Session = Depends(get_db)):
     
     # Se não foi enviado (por falta de config), simula no log para dev local
     if not enviado:
-        simular_envio_email(dados.email, verificacao_token)
+        simular_envio_email(dados.email, verificacao_token, "verificacao")
 
-    logger.info(f"Novo cadastro iniciado: {dados.email}")
+    logger.info(f"Novo cadastro iniciado: {mask_email(dados.email)}")
     return {"sucesso": True, "msg": "Cadastro realizado! Verifique seu e-mail para ativar a conta."}
 
 @app.post("/cliente/login")
 def login_cliente(dados: LoginCliente, db: Session = Depends(get_db)):
     cliente = db.query(Cliente).filter(Cliente.email == dados.email).first()
     if not cliente or not verificar_senha(dados.senha, cliente.senha_hash):
-        logger.warning(f"Tentativa de login falha para: {dados.email}")
+        logger.warning(f"Tentativa de login falha para: {mask_email(dados.email)}")
         return JSONResponse(status_code=401, content={"detail": "E-mail ou senha incorretos."}) 
     
     if not cliente.email_verificado:
@@ -293,10 +324,17 @@ def login_cliente(dados: LoginCliente, db: Session = Depends(get_db)):
     sessao_token = str(uuid.uuid4())
     cliente.token = sessao_token
     # Define expiração para 30 dias (Segurança Corporativa)
-    cliente.token_expiration = datetime.utcnow() + timedelta(days=30)
+    cliente.token_expiration = datetime.now(timezone.utc) + timedelta(days=30)
+    
+    # SECURITY: Se o usuário logou com senha, invalida qualquer pedido de recuperação pendente
+    # Isso fecha o vetor onde um atacante poderia usar um token de reset antigo se tivesse acesso ao email
+    if cliente.reset_token_hash:
+        cliente.reset_token_hash = None
+        cliente.reset_token_expiration = None
+
     db.commit()
 
-    logger.info(f"Login sucesso: Cliente {cliente.id} ({cliente.email})")
+    logger.info(f"Login sucesso: Cliente {cliente.id} ({mask_email(cliente.email)})")
     
     # Redireciona para o App Principal após login
     response = JSONResponse(content={"redirect": FRONTEND_APP_URL, "sucesso": True})
@@ -323,7 +361,7 @@ def verificar_email(token: str, db: Session = Depends(get_db)):
     if cliente.email_verificado:
         return RedirectResponse(url=f"{FRONTEND_LOGIN_URL}?verificado=true")
 
-    if cliente.email_token_expiration and datetime.utcnow() > cliente.email_token_expiration:
+    if cliente.email_token_expiration and datetime.now(timezone.utc) > cliente.email_token_expiration:
         return JSONResponse(status_code=400, content={"detail": "Este link de verificação expirou."}) 
     
     cliente.email_verificado = True
@@ -331,10 +369,87 @@ def verificar_email(token: str, db: Session = Depends(get_db)):
     cliente.email_token_expiration = None
     db.commit()
 
-    logger.info(f"E-mail verificado com sucesso: {cliente.email}")
+    logger.info(f"E-mail verificado com sucesso: {mask_email(cliente.email)}")
     
     # Após verificar, manda para a tela de Login
     return RedirectResponse(url=f"{FRONTEND_LOGIN_URL}?verificado=true")
+
+# =========================
+# Recuperação de Senha (HARDENED)
+# =========================
+@app.post("/cliente/esqueci-senha")
+def esqueci_senha(req: EsqueciSenhaRequest, db: Session = Depends(get_db)):
+    cliente = db.query(Cliente).filter(Cliente.email == req.email).first()
+    
+    msg_padrao = "Se este e-mail estiver cadastrado, você receberá um link de recuperação."
+
+    if cliente:
+        # Anti-flood e Timing Protection:
+        # Se já existe um token válido recente, não envia outro.
+        now = datetime.utcnow()  # Use UTC sem timezone
+        if cliente.reset_token_expiration and now < cliente.reset_token_expiration:
+             # Token ainda válido. Logamos e ignoramos para evitar spam/flood.
+             # Retornamos sucesso para não indicar diferença.
+             logger.warning(f"Solicitação de recuperação ignorada (token ativo): {mask_email(req.email)}")
+             return {"msg": msg_padrao}
+
+        # CLEANUP: Limpa token antigo explicitamente para evitar estado ambíguo
+        cliente.reset_token_hash = None
+        cliente.reset_token_expiration = None
+
+        # Gera novo token raw (para enviar) e hash (para salvar)
+        raw_token = gerar_reset_token()
+        hashed_token = hash_token(raw_token)
+
+        cliente.reset_token_hash = hashed_token
+        # Token expira em 30 min (Segurança) → convertido para naive datetime
+        cliente.reset_token_expiration = (now + timedelta(minutes=30)).replace(tzinfo=None)
+        db.commit()
+
+        # Envia o token RAW por e-mail (link único)
+        enviado = enviar_email_recuperacao(cliente.email, raw_token)
+        if not enviado:
+             simular_envio_email(cliente.email, raw_token, "recuperacao")
+
+    return {"msg": msg_padrao}
+
+
+@app.post("/cliente/redefinir-senha")
+def redefinir_senha(req: RedefinirSenhaRequest, db: Session = Depends(get_db)):
+    # 1. Validação Redundante de Tamanho de Senha (Backend Enforcement)
+    if len(req.nova_senha) < 6 or len(req.nova_senha) > 64:
+        raise HTTPException(status_code=400, detail="A senha deve ter entre 6 e 64 caracteres.")
+
+    # 2. Busca o usuário pelo HASH do token recebido
+    # MELHORIA: Validação de expiração DIRETAMENTE NO SQL
+    # Evita race conditions e garante que o banco só retorne se for válido
+    hashed_input = hash_token(req.token)
+    
+    cliente = db.query(Cliente).filter(
+        Cliente.reset_token_hash == hashed_input,
+        Cliente.reset_token_expiration > datetime.now(timezone.utc)
+    ).first()
+    
+    if not cliente:
+        # Se não achou, pode ser token inválido ou expirado (já filtrado no SQL)
+        return JSONResponse(status_code=400, content={"detail": "Link inválido ou expirado. Solicite um novo."}) 
+    
+    # 3. Atualiza a senha
+    cliente.senha_hash = hash_senha(req.nova_senha)
+    
+    # 4. Invalida Sessões Ativas (Segurança Crítica)
+    # Força logout em todos os dispositivos ao trocar a senha
+    cliente.token = None
+    cliente.token_expiration = None
+
+    # 5. Limpa o token de recuperação (Single Use)
+    cliente.reset_token_hash = None
+    cliente.reset_token_expiration = None
+    db.commit()
+
+    logger.info(f"Senha redefinida com sucesso para o cliente {cliente.id}. Sessões invalidadas.")
+    return {"msg": "Senha redefinida com sucesso. Faça login agora."}
+
 
 # =========================
 # Chat Geral (Busca SQL)
@@ -392,7 +507,7 @@ async def chat_edital(edital_id: int, msg: ChatMessage, db: Session = Depends(ge
     response = client.chat.completions.create(
         model=DEPLOYMENT_NAME,
         messages=[
-            {"role": "system", "content": "Você é um assistente especializado em editais. Responda apenas com base no texto fornecido."},
+            {"role": "system", "content": "Você é um assistente especializado em editais. Responda apenas com base no texto fornecido."}, 
             {"role": "user", "content": f"Pergunta: {msg.message}\n\n{texto}"}
         ],
         max_completion_tokens=2048
