@@ -1,6 +1,6 @@
-fastapi
-uvicorn
-sqlalchemy
+fastapi==0.111.1
+uvicorn==0.23.0
+sqlalchemy==2.0.20
 requests
 python-jose[cryptography]
 
@@ -16,3 +16,6 @@ PyPDF2
 
 # Driver SQL (Necessário se estiver usando MSSQL/SQL Server)
 pyodbc
+
+# Envio de Email (Azure Communication Services)
+azure-communication-email
