@@ -7,7 +7,7 @@ from datetime import datetime
 from .database import Base
 
 # =========================
-# Models
+# Models (Production Ready)
 # =========================
 
 class Edital(Base):
@@ -40,15 +40,19 @@ class Cliente(Base):
 
     id = Column(Integer, primary_key=True)
     nome = Column(NVARCHAR(255), nullable=False)
+    # index=True explicitamente para buscas rápidas no login
     email = Column(NVARCHAR(255), nullable=False, unique=True, index=True)
     celular = Column(NVARCHAR(50))
-    cnpj = Column(NVARCHAR(20), nullable=False, unique=True)
+    
+    # index=True adicionado para otimizar validação de unicidade no cadastro
+    cnpj = Column(NVARCHAR(20), nullable=False, unique=True, index=True)
     
     # Autenticação e Segurança
     senha_hash = Column(NVARCHAR(255), nullable=False)
     email_verificado = Column(Boolean, default=False)
     
     # Verificação de E-mail
+    # Unique=True + Index=True: garante performance na busca pelo token de verificação
     email_token = Column(NVARCHAR(255), unique=True, index=True)
     email_token_expiration = Column(DateTime, nullable=True)
 
@@ -56,5 +60,9 @@ class Cliente(Base):
     contato_ok = Column(Boolean, default=False)
     politica_ok = Column(Boolean, default=False)
     
-    token = Column(NVARCHAR(255), unique=True, index=True)  # Token de sessão (cookie)
+    # Token de sessão (cookie)
+    token = Column(NVARCHAR(255), unique=True, index=True)
+    token_expiration = Column(DateTime, nullable=True)
+    
+    # Sempre UTC para consistência
     criado_em = Column(DateTime, default=datetime.utcnow)
