@@ -10,7 +10,7 @@ from fastapi import FastAPI, Depends, HTTPException, Body, Request, status, Cook
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 from sqlalchemy.exc import OperationalError, IntegrityError
 from pydantic import BaseModel, Field
 from openai import AzureOpenAI
@@ -19,21 +19,28 @@ from PyPDF2 import PdfReader
 from .database import engine, get_db
 from .models import Base, Edital, User, Cliente
 from .auth import verificar_senha, hash_senha, criar_token, get_current_user
+from .email_service import enviar_email_verificacao
 
 # =========================
 # App Initialization
 # =========================
 app = FastAPI(title="API de Editais + Chatbot")
 
-@app.get("/ping")
-def ping():
-    return {"status": "ok", "time": datetime.utcnow().isoformat()}
-
 # =========================
 # Logging
 # =========================
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("api")
+
+# =========================
+# Configurações de Ambiente (URLs)
+# =========================
+# IMPORTANTE: No Azure App Service (Production), configure estas variáveis:
+# FRONTEND_LOGIN_URL = https://login.atimus.agr.br
+# FRONTEND_APP_URL = https://editais.atimus.agr.br
+
+FRONTEND_LOGIN_URL = os.getenv("FRONTEND_LOGIN_URL", "http://127.0.0.1:5500/index.html")
+FRONTEND_APP_URL = os.getenv("FRONTEND_APP_URL", "http://127.0.0.1:5500/editais.html")
 
 # =========================
 # CORS
@@ -43,6 +50,8 @@ app.add_middleware(
     allow_origins=[
         "https://login.atimus.agr.br",   # frontend de login
         "https://editais.atimus.agr.br", # frontend de editais
+        "http://127.0.0.1:5500",
+        "http://localhost:5500",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -113,25 +122,13 @@ def parse_date(date_str):
     except ValueError:
         return None
 
-def get_frontend_url():
-    # Prioriza variável de ambiente para flexibilidade no Azure
-    return os.getenv("FRONTEND_URL", "http://localhost:5500/index.html")
-
-def get_base_frontend_url():
-    # Retorna a URL base sem o arquivo index.html, para redirects de login
-    full_url = get_frontend_url()
-    if "/index.html" in full_url:
-        return full_url.replace("/index.html", "/")
-    return full_url
-
 def simular_envio_email(email: str, token: str):
-    # Determina a URL base da API via variável de ambiente
+    # Fallback para caso o ACS não esteja configurado
     base_api_url = os.getenv("BASE_API_URL", "http://127.0.0.1:8000")
-    
     link = f"{base_api_url}/cliente/verificar-email?token={token}"
     
     logger.info("====================================================")
-    logger.info(f"[SIMULAÇÃO DE EMAIL] Para: {email}")
+    logger.info(f"[SIMULAÇÃO DE EMAIL - LOCAL] Para: {email}")
     logger.info(f"[AÇÃO] Clique no link para verificar: {link}")
     logger.info("====================================================")
 
@@ -145,8 +142,41 @@ async def log_requests(request: Request, call_next):
     return response
 
 # =========================
-# Routes Public
+# Routes Public / System
 # =========================
+@app.get("/ping")
+def ping():
+    return {"status": "ok", "time": datetime.utcnow().isoformat()}
+
+@app.get("/health")
+def health_check(db: Session = Depends(get_db)):
+    """
+    Verifica saúde dos componentes críticos: Banco de Dados e OpenAI.
+    Útil para monitoramento em produção.
+    """
+    status_report = {"status": "ok", "components": {}}
+    
+    # Check Database
+    try:
+        # SQLAlchemy 2.0 requer text()
+        db.execute(text("SELECT 1"))
+        status_report["components"]["database"] = "healthy"
+    except Exception as e:
+        logger.error(f"Health Check Falhou (DB): {e}")
+        status_report["status"] = "degraded"
+        status_report["components"]["database"] = str(e)
+
+    # Check Azure OpenAI
+    if client:
+        status_report["components"]["openai"] = "configured"
+    else:
+        status_report["components"]["openai"] = "not_configured"
+
+    if status_report["status"] != "ok":
+        return JSONResponse(status_code=503, content=status_report)
+        
+    return status_report
+
 @app.get("/")
 def root():
     return {"msg": "API Atimus Online. Acesse /index.html se estiver servindo estático ou configure o frontend."}
@@ -154,7 +184,8 @@ def root():
 @app.get("/editais")
 def listar_editais(db: Session = Depends(get_db)):
     resultados = db.query(Edital).all()
-    frontend_url = get_frontend_url()
+    # Share link aponta para a aplicação principal
+    frontend_url = FRONTEND_APP_URL
 
     lista = []
     for r in resultados:
@@ -192,12 +223,28 @@ def listar_editais(db: Session = Depends(get_db)):
 def cliente_me(cliente_token: str | None = Cookie(default=None), db: Session = Depends(get_db)):
     if not cliente_token:
         return {"logado": False}
+    
     cliente = db.query(Cliente).filter(Cliente.token == cliente_token).first()
+    
+    # Verifica existência e verificação de e-mail
     if not cliente or not cliente.email_verificado:
         return {"logado": False}
     
-    # Redireciona para o frontend configurado no ambiente
-    return {"logado": True, "nome": cliente.nome, "redirect": get_base_frontend_url()}
+    now = datetime.utcnow()
+
+    # Verifica expiração
+    if cliente.token_expiration and now > cliente.token_expiration:
+        return {"logado": False, "msg": "Sessão expirada"}
+    
+    # Renovação de Sessão (Rolling Session)
+    # Se faltar menos de 5 dias para expirar, renova por mais 30 dias
+    if cliente.token_expiration and (cliente.token_expiration - now).days < 5:
+        cliente.token_expiration = now + timedelta(days=30)
+        db.commit()
+        logger.info(f"Sessão renovada para cliente {cliente.id} ({cliente.email})")
+    
+    # Retorna redirecionamento para o App Principal
+    return {"logado": True, "nome": cliente.nome, "id": cliente.id, "redirect": FRONTEND_APP_URL}
 
 @app.post("/cliente/cadastro")
 def cadastro_cliente(dados: CadastroCliente, db: Session = Depends(get_db)):
@@ -206,6 +253,8 @@ def cadastro_cliente(dados: CadastroCliente, db: Session = Depends(get_db)):
         return JSONResponse(status_code=400, content={"detail": "E-mail ou CNPJ já cadastrados. Tente fazer login."}) 
 
     verificacao_token = str(uuid.uuid4())
+    
+    # UX: Token expira em 72h (3 dias) para dar tempo ao usuário, conforme ajuste de produção
     novo_cliente = Cliente(
         nome=dados.nome,
         email=dados.email,
@@ -216,37 +265,48 @@ def cadastro_cliente(dados: CadastroCliente, db: Session = Depends(get_db)):
         politica_ok=dados.politica_ok,
         email_verificado=False,
         email_token=verificacao_token,
-        email_token_expiration=datetime.utcnow() + timedelta(hours=24)
+        email_token_expiration=datetime.utcnow() + timedelta(hours=72)
     )
     db.add(novo_cliente)
     db.commit()
 
-    simular_envio_email(dados.email, verificacao_token)
+    # Tenta enviar e-mail real via ACS
+    enviado = enviar_email_verificacao(dados.email, verificacao_token)
+    
+    # Se não foi enviado (por falta de config), simula no log para dev local
+    if not enviado:
+        simular_envio_email(dados.email, verificacao_token)
+
+    logger.info(f"Novo cadastro iniciado: {dados.email}")
     return {"sucesso": True, "msg": "Cadastro realizado! Verifique seu e-mail para ativar a conta."}
 
 @app.post("/cliente/login")
 def login_cliente(dados: LoginCliente, db: Session = Depends(get_db)):
     cliente = db.query(Cliente).filter(Cliente.email == dados.email).first()
     if not cliente or not verificar_senha(dados.senha, cliente.senha_hash):
+        logger.warning(f"Tentativa de login falha para: {dados.email}")
         return JSONResponse(status_code=401, content={"detail": "E-mail ou senha incorretos."}) 
+    
     if not cliente.email_verificado:
         return JSONResponse(status_code=403, content={"detail": "Seu e-mail ainda não foi verificado. Verifique sua caixa de entrada."}) 
 
     sessao_token = str(uuid.uuid4())
     cliente.token = sessao_token
+    # Define expiração para 30 dias (Segurança Corporativa)
+    cliente.token_expiration = datetime.utcnow() + timedelta(days=30)
     db.commit()
+
+    logger.info(f"Login sucesso: Cliente {cliente.id} ({cliente.email})")
     
-    # Usa URL base dinâmica
-    redirect_url = get_base_frontend_url()
-    response = JSONResponse(content={"redirect": redirect_url, "sucesso": True})
+    # Redireciona para o App Principal após login
+    response = JSONResponse(content={"redirect": FRONTEND_APP_URL, "sucesso": True})
     
     # Ajuste para Cross-Site (Frontend no Storage/CDN e Backend no App Service)
-    # SameSite=None e Secure=True são obrigatórios para permitir cookies entre domínios diferentes com HTTPS.
     response.set_cookie(
         key="cliente_token",
         value=sessao_token,
         httponly=True,
-        secure=True,     # obrigatoriamente True em produção
+        secure=True,     # obrigigatoriamente True em produção
         samesite="none"  # permite que seja usado entre subdomínios
     )
 
@@ -255,18 +315,26 @@ def login_cliente(dados: LoginCliente, db: Session = Depends(get_db)):
 @app.get("/cliente/verificar-email")
 def verificar_email(token: str, db: Session = Depends(get_db)):
     cliente = db.query(Cliente).filter(Cliente.email_token == token).first()
+    
     if not cliente:
         return JSONResponse(status_code=400, content={"detail": "Token inválido ou não encontrado."}) 
+    
+    # Segurança: Se já verificado, redireciona para Login sem processar novamente
+    if cliente.email_verificado:
+        return RedirectResponse(url=f"{FRONTEND_LOGIN_URL}?verificado=true")
+
     if cliente.email_token_expiration and datetime.utcnow() > cliente.email_token_expiration:
         return JSONResponse(status_code=400, content={"detail": "Este link de verificação expirou."}) 
+    
     cliente.email_verificado = True
     cliente.email_token = None
     cliente.email_token_expiration = None
     db.commit()
+
+    logger.info(f"E-mail verificado com sucesso: {cliente.email}")
     
-    # Redireciona para o Frontend correto (Produção ou Local)
-    frontend_url = get_frontend_url()
-    return RedirectResponse(url=f"{frontend_url}?verificado=true")
+    # Após verificar, manda para a tela de Login
+    return RedirectResponse(url=f"{FRONTEND_LOGIN_URL}?verificado=true")
 
 # =========================
 # Chat Geral (Busca SQL)
@@ -316,7 +384,11 @@ async def chat_edital(edital_id: int, msg: ChatMessage, db: Session = Depends(ge
             logger.error(f"Erro ao ler PDF {url}: {e}")
     if not texto.strip():
         return {"reply": "Não consegui extrair texto do edital."}
+    
+    # TODO: Para escalar, implementar chunking e embeddings (Vector Search).
+    # Atualmente truncamos para evitar estouro de tokens/memória.
     texto = texto[:200_000]
+    
     response = client.chat.completions.create(
         model=DEPLOYMENT_NAME,
         messages=[
@@ -364,7 +436,8 @@ def criar_edital(dados: dict = Body(...), db: Session = Depends(get_db), user: d
     db.add(novo)
     db.commit()
     db.refresh(novo)
-    frontend_url = get_frontend_url()
+    # Retorna link para a aplicação principal
+    frontend_url = FRONTEND_APP_URL
     return {"msg": "Edital criado com sucesso", "id": novo.id, "share_link": f"{frontend_url}?id={novo.id}"}
 
 @app.put("/admin/editais/{edital_id}")
