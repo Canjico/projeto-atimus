@@ -1,7 +1,9 @@
 # API/auth.py
 
 import os
-from datetime import datetime, timedelta
+import secrets
+import hashlib
+from datetime import datetime, timedelta, timezone
 from typing import Dict
 
 from fastapi import HTTPException, Depends, status
@@ -18,6 +20,9 @@ ACCESS_TOKEN_EXPIRE_HOURS = 8
 
 # Não derruba a aplicação no import
 JWT_SECRET = os.getenv("JWT_SECRET", "")
+
+# Pepper para hash de token (Camada extra de segurança)
+RESET_TOKEN_PEPPER = os.getenv("RESET_TOKEN_PEPPER", "")
 
 # =========================
 # Segurança
@@ -69,6 +74,25 @@ def verificar_senha(senha: str, senha_hash: str) -> bool:
     return pwd_context.verify(senha_truncada, senha_hash)
 
 # =========================
+# Token de Recuperação (Secure)
+# =========================
+
+def gerar_reset_token() -> str:
+    """
+    Gera um token seguro URL-safe (aleatório).
+    """
+    return secrets.token_urlsafe(32)
+
+def hash_token(token: str) -> str:
+    """
+    Gera o hash SHA-256 do token + PEPPER para armazenamento seguro no banco.
+    O pepper impede que ataques de rainbow table funcionem facilmente caso o banco vaze.
+    """
+    # Concatena o pepper ao token antes de hashar
+    dados = token + RESET_TOKEN_PEPPER
+    return hashlib.sha256(dados.encode()).hexdigest()
+
+# =========================
 # JWT
 # =========================
 
@@ -79,7 +103,8 @@ def criar_token(dados: Dict) -> str:
     secret = _get_jwt_secret()
 
     payload = dados.copy()
-    expire = datetime.utcnow() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
+    # Usando UTC Aware para consistência
+    expire = datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
     payload.update({"exp": expire})
 
     return jwt.encode(payload, secret, algorithm=ALGORITHM)
