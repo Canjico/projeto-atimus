@@ -203,7 +203,8 @@ async def log_requests(request: Request, call_next):
 # =========================
 @app.get("/ping")
 def ping():
-    return {"status": "ok", "time": datetime.utcnow().isoformat()}
+    # Usa UTC Aware
+    return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
 
 @app.get("/health")
 def health_check(db: Session = Depends(get_db)):
@@ -281,7 +282,8 @@ def cliente_me(cliente_token: str | None = Cookie(default=None), db: Session = D
     if not cliente.email_verificado:
         return JSONResponse(status_code=403, content={"logado": False, "msg": "Email não verificado"})
     
-    now = datetime.utcnow()
+    # CORREÇÃO: Usar UTC Aware para comparar com DB
+    now = datetime.now(timezone.utc)
 
     if cliente.token_expiration and now > cliente.token_expiration:
         return JSONResponse(status_code=401, content={"logado": False, "msg": "Sessão expirada"})
@@ -311,7 +313,8 @@ def cadastro_cliente(dados: CadastroCliente, db: Session = Depends(get_db)):
         politica_ok=dados.politica_ok,
         email_verificado=False,
         email_token=verificacao_token,
-        email_token_expiration=datetime.utcnow() + timedelta(hours=72)
+        # CORREÇÃO: Usar UTC Aware
+        email_token_expiration=datetime.now(timezone.utc) + timedelta(hours=72)
     )
     db.add(novo_cliente)
     db.commit()
@@ -334,7 +337,8 @@ def login_cliente(dados: LoginCliente, db: Session = Depends(get_db)):
 
     sessao_token = str(uuid.uuid4())
     cliente.token = sessao_token
-    cliente.token_expiration = datetime.utcnow() + timedelta(days=30)
+    # CORREÇÃO: Usar UTC Aware
+    cliente.token_expiration = datetime.now(timezone.utc) + timedelta(days=30)
     
     # Security cleanup
     if getattr(cliente, 'reset_token_hash', None):
@@ -352,8 +356,7 @@ def login_cliente(dados: LoginCliente, db: Session = Depends(get_db)):
     })
     
     # ==========================================================================
-    # CONFIGURAÇÃO CRÍTICA DE COOKIE (CORREÇÃO DE BUG)
-    # samesite='none' e secure=True são OBRIGATÓRIOS para Cross-Site (API != Frontend)
+    # CONFIGURAÇÃO CRÍTICA DE COOKIE
     # ==========================================================================
     response.set_cookie(
         key="cliente_token",
@@ -377,7 +380,8 @@ def verificar_email(token: str, db: Session = Depends(get_db)):
     if cliente.email_verificado:
         return RedirectResponse(url=f"{FRONTEND_LOGIN_URL}?verificado=true")
 
-    if cliente.email_token_expiration and datetime.utcnow() > cliente.email_token_expiration:
+    # CORREÇÃO: Usar UTC Aware
+    if cliente.email_token_expiration and datetime.now(timezone.utc) > cliente.email_token_expiration:
         return JSONResponse(status_code=400, content={"detail": "Este link de verificação expirou."}) 
     
     cliente.email_verificado = True
@@ -396,7 +400,8 @@ def esqueci_senha(req: EsqueciSenhaRequest, db: Session = Depends(get_db)):
     msg_padrao = "Se este e-mail estiver cadastrado, você receberá um link de recuperação."
 
     if cliente:
-        now = datetime.utcnow()
+        # CORREÇÃO: Usar UTC Aware
+        now = datetime.now(timezone.utc)
         exp = getattr(cliente, 'reset_token_expiration', None)
         
         if exp and now < exp:
@@ -425,9 +430,10 @@ def redefinir_senha(req: RedefinirSenhaRequest, db: Session = Depends(get_db)):
 
     hashed_input = hash_token(req.token)
     
+    # CORREÇÃO: Usar UTC Aware
     cliente = db.query(Cliente).filter(
         Cliente.reset_token_hash == hashed_input,
-        Cliente.reset_token_expiration > datetime.utcnow()
+        Cliente.reset_token_expiration > datetime.now(timezone.utc)
     ).first()
     
     if not cliente:
