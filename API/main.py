@@ -52,6 +52,7 @@ app.add_middleware(
         "https://editais.atimus.agr.br", # frontend de editais
         "http://127.0.0.1:5500",
         "http://localhost:5500",
+        "http://127.0.0.1:8000"
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -88,7 +89,6 @@ def startup():
         logger.info("Banco de dados: Estrutura base verificada.")
         
         # 2. AUTO-MIGRATION: Adiciona colunas novas se faltarem
-        # Isso corrige o erro 'AttributeError' se o banco já existia sem essas colunas
         inspector = inspect(engine)
         if inspector.has_table("clientes"):
             columns = [c["name"] for c in inspector.get_columns("clientes")]
@@ -103,7 +103,6 @@ def startup():
                 # Reset Token Expiration
                 if "reset_token_expiration" not in columns:
                     logger.info("MIGRATION: Adicionando coluna 'reset_token_expiration'...")
-                    # DATETIME é aceito na maioria dos SQLs (inclusive Azure SQL e SQLite)
                     conn.execute(text("ALTER TABLE clientes ADD reset_token_expiration DATETIME NULL"))
                     conn.commit()
                 
@@ -140,7 +139,6 @@ class ChatMessage(BaseModel):
 class CadastroCliente(BaseModel):
     nome: str
     email: str
-    # Aumentado para 64 chars (Modern Standards)
     senha: str = Field(..., min_length=6, max_length=64)
     celular: str
     cnpj: str
@@ -152,7 +150,6 @@ class EsqueciSenhaRequest(BaseModel):
 
 class RedefinirSenhaRequest(BaseModel):
     token: str
-    # Aumentado para 64 chars (Modern Standards)
     nova_senha: str = Field(..., min_length=6, max_length=64)
 
 # =========================
@@ -167,10 +164,6 @@ def parse_date(date_str):
         return None
 
 def mask_email(email: str) -> str:
-    """
-    Ofusca o e-mail para logs (LGPD/Privacy).
-    Ex: admin@atimus.agr.br -> ad***@atimus.agr.br
-    """
     if not email or "@" not in email:
         return "***"
     try:
@@ -182,12 +175,10 @@ def mask_email(email: str) -> str:
         return "***@***"
 
 def simular_envio_email(email: str, token: str, tipo: str = "verificacao"):
-    # Fallback para caso o ACS não esteja configurado
     if tipo == "verificacao":
         base_api_url = os.getenv("BASE_API_URL", "http://127.0.0.1:8000")
         link = f"{base_api_url}/cliente/verificar-email?token={token}"
     else:
-        # Recuperação
         if "?" in FRONTEND_LOGIN_URL:
             link = f"{FRONTEND_LOGIN_URL}&reset_token={token}"
         else:
@@ -212,20 +203,12 @@ async def log_requests(request: Request, call_next):
 # =========================
 @app.get("/ping")
 def ping():
-    # UTC Now (Naive) para consistência
     return {"status": "ok", "time": datetime.utcnow().isoformat()}
 
 @app.get("/health")
 def health_check(db: Session = Depends(get_db)):
-    """
-    Verifica saúde dos componentes críticos: Banco de Dados e OpenAI.
-    Útil para monitoramento em produção.
-    """
     status_report = {"status": "ok", "components": {}}
-    
-    # Check Database
     try:
-        # SQLAlchemy 2.0 requer text()
         db.execute(text("SELECT 1"))
         status_report["components"]["database"] = "healthy"
     except Exception as e:
@@ -233,7 +216,6 @@ def health_check(db: Session = Depends(get_db)):
         status_report["status"] = "degraded"
         status_report["components"]["database"] = str(e)
 
-    # Check Azure OpenAI
     if client:
         status_report["components"]["openai"] = "configured"
     else:
@@ -246,12 +228,11 @@ def health_check(db: Session = Depends(get_db)):
 
 @app.get("/")
 def root():
-    return {"msg": "API Atimus Online. Acesse /index.html se estiver servindo estático ou configure o frontend."}
+    return {"msg": "API Atimus Online."}
 
 @app.get("/editais")
 def listar_editais(db: Session = Depends(get_db)):
     resultados = db.query(Edital).all()
-    # Share link aponta para a aplicação principal
     frontend_url = FRONTEND_APP_URL
 
     lista = []
@@ -288,30 +269,28 @@ def listar_editais(db: Session = Depends(get_db)):
 # =========================
 @app.get("/cliente/me")
 def cliente_me(cliente_token: str | None = Cookie(default=None), db: Session = Depends(get_db)):
+    # Log para debug em produção
     if not cliente_token:
-        return {"logado": False}
+        return JSONResponse(status_code=401, content={"logado": False, "msg": "Cookie não encontrado"})
     
     cliente = db.query(Cliente).filter(Cliente.token == cliente_token).first()
     
-    # Verifica existência e verificação de e-mail
-    if not cliente or not cliente.email_verificado:
-        return {"logado": False}
+    if not cliente:
+        return JSONResponse(status_code=401, content={"logado": False, "msg": "Sessão inválida"})
     
-    # UTC Naive para evitar problemas com SQL Server
+    if not cliente.email_verificado:
+        return JSONResponse(status_code=403, content={"logado": False, "msg": "Email não verificado"})
+    
     now = datetime.utcnow()
 
-    # Verifica expiração
     if cliente.token_expiration and now > cliente.token_expiration:
-        return {"logado": False, "msg": "Sessão expirada"}
+        return JSONResponse(status_code=401, content={"logado": False, "msg": "Sessão expirada"})
     
     # Renovação de Sessão (Rolling Session)
-    # Se faltar menos de 5 dias para expirar, renova por mais 30 dias
     if cliente.token_expiration and (cliente.token_expiration - now).days < 5:
         cliente.token_expiration = now + timedelta(days=30)
         db.commit()
-        logger.info(f"Sessão renovada para cliente {cliente.id} ({mask_email(cliente.email)})")
     
-    # Retorna redirecionamento para o App Principal
     return {"logado": True, "nome": cliente.nome, "id": cliente.id, "redirect": FRONTEND_APP_URL}
 
 @app.post("/cliente/cadastro")
@@ -322,8 +301,6 @@ def cadastro_cliente(dados: CadastroCliente, db: Session = Depends(get_db)):
 
     verificacao_token = str(uuid.uuid4())
     
-    # UX: Token expira em 72h (3 dias)
-    # Usando UTC Naive para compatibilidade
     novo_cliente = Cliente(
         nome=dados.nome,
         email=dados.email,
@@ -339,10 +316,7 @@ def cadastro_cliente(dados: CadastroCliente, db: Session = Depends(get_db)):
     db.add(novo_cliente)
     db.commit()
 
-    # Tenta enviar e-mail real via ACS
     enviado = enviar_email_verificacao(dados.email, verificacao_token)
-    
-    # Se não foi enviado (por falta de config), simula no log para dev local
     if not enviado:
         simular_envio_email(dados.email, verificacao_token, "verificacao")
 
@@ -353,7 +327,6 @@ def cadastro_cliente(dados: CadastroCliente, db: Session = Depends(get_db)):
 def login_cliente(dados: LoginCliente, db: Session = Depends(get_db)):
     cliente = db.query(Cliente).filter(Cliente.email == dados.email).first()
     if not cliente or not verificar_senha(dados.senha, cliente.senha_hash):
-        logger.warning(f"Tentativa de login falha para: {mask_email(dados.email)}")
         return JSONResponse(status_code=401, content={"detail": "E-mail ou senha incorretos."}) 
     
     if not cliente.email_verificado:
@@ -361,12 +334,9 @@ def login_cliente(dados: LoginCliente, db: Session = Depends(get_db)):
 
     sessao_token = str(uuid.uuid4())
     cliente.token = sessao_token
-    # Define expiração para 30 dias (Segurança Corporativa)
-    # Usando UTC Naive
     cliente.token_expiration = datetime.utcnow() + timedelta(days=30)
     
-    # SECURITY: Se o usuário logou com senha, invalida qualquer pedido de recuperação pendente
-    # Uso de getattr para evitar AttributeError se a coluna ainda não existir no objeto em memória
+    # Security cleanup
     if getattr(cliente, 'reset_token_hash', None):
         cliente.reset_token_hash = None
         cliente.reset_token_expiration = None
@@ -375,16 +345,24 @@ def login_cliente(dados: LoginCliente, db: Session = Depends(get_db)):
 
     logger.info(f"Login sucesso: Cliente {cliente.id} ({mask_email(cliente.email)})")
     
-    # Redireciona para o App Principal após login
-    response = JSONResponse(content={"redirect": FRONTEND_APP_URL, "sucesso": True})
+    response = JSONResponse(content={
+        "redirect": FRONTEND_APP_URL, 
+        "sucesso": True, 
+        "msg": "Login realizado com sucesso"
+    })
     
-    # Ajuste para Cross-Site (Frontend no Storage/CDN e Backend no App Service)
+    # ==========================================================================
+    # CONFIGURAÇÃO CRÍTICA DE COOKIE (CORREÇÃO DE BUG)
+    # samesite='none' e secure=True são OBRIGATÓRIOS para Cross-Site (API != Frontend)
+    # ==========================================================================
     response.set_cookie(
         key="cliente_token",
         value=sessao_token,
-        httponly=True,
-        secure=True,     # obrigigatoriamente True em produção
-        samesite="none"  # permite que seja usado entre subdomínios
+        httponly=True,   # Javascript não acessa (proteção XSS)
+        secure=True,     # Obrigatório para samesite='none'
+        samesite="none", # Permite envio entre domínios diferentes
+        max_age=30 * 24 * 60 * 60, # 30 dias em segundos
+        path="/"
     )
 
     return response
@@ -396,11 +374,9 @@ def verificar_email(token: str, db: Session = Depends(get_db)):
     if not cliente:
         return JSONResponse(status_code=400, content={"detail": "Token inválido ou não encontrado."}) 
     
-    # Segurança: Se já verificado, redireciona para Login sem processar novamente
     if cliente.email_verificado:
         return RedirectResponse(url=f"{FRONTEND_LOGIN_URL}?verificado=true")
 
-    # Comparação UTC Naive
     if cliente.email_token_expiration and datetime.utcnow() > cliente.email_token_expiration:
         return JSONResponse(status_code=400, content={"detail": "Este link de verificação expirou."}) 
     
@@ -409,64 +385,46 @@ def verificar_email(token: str, db: Session = Depends(get_db)):
     cliente.email_token_expiration = None
     db.commit()
 
-    logger.info(f"E-mail verificado com sucesso: {mask_email(cliente.email)}")
-    
-    # Após verificar, manda para a tela de Login
     return RedirectResponse(url=f"{FRONTEND_LOGIN_URL}?verificado=true")
 
 # =========================
-# Recuperação de Senha (HARDENED)
+# Recuperação de Senha
 # =========================
 @app.post("/cliente/esqueci-senha")
 def esqueci_senha(req: EsqueciSenhaRequest, db: Session = Depends(get_db)):
     cliente = db.query(Cliente).filter(Cliente.email == req.email).first()
-    
     msg_padrao = "Se este e-mail estiver cadastrado, você receberá um link de recuperação."
 
     if cliente:
-        # Anti-flood e Timing Protection:
-        # UTC Naive
         now = datetime.utcnow()
-        # getattr para segurança contra inconsistência de schema
         exp = getattr(cliente, 'reset_token_expiration', None)
         
         if exp and now < exp:
-             logger.warning(f"Solicitação de recuperação ignorada (token ativo): {mask_email(req.email)}")
              return {"msg": msg_padrao}
 
-        # CLEANUP: Limpa token antigo
         cliente.reset_token_hash = None
         cliente.reset_token_expiration = None
 
-        # Gera novo token
         raw_token = gerar_reset_token()
         hashed_token = hash_token(raw_token)
 
         cliente.reset_token_hash = hashed_token
-        # UTC Naive
         cliente.reset_token_expiration = now + timedelta(minutes=30)
         db.commit()
 
-        # Envia o token RAW por e-mail
         enviado = enviar_email_recuperacao(cliente.email, raw_token)
         if not enviado:
              simular_envio_email(cliente.email, raw_token, "recuperacao")
 
     return {"msg": msg_padrao}
 
-
 @app.post("/cliente/redefinir-senha")
 def redefinir_senha(req: RedefinirSenhaRequest, db: Session = Depends(get_db)):
-    # 1. Validação Redundante de Tamanho de Senha (Backend Enforcement)
     if len(req.nova_senha) < 6 or len(req.nova_senha) > 64:
         raise HTTPException(status_code=400, detail="A senha deve ter entre 6 e 64 caracteres.")
 
-    # 2. Busca o usuário pelo HASH do token recebido
     hashed_input = hash_token(req.token)
     
-    # IMPORTANTE: Aqui precisamos ter certeza que as colunas existem.
-    # Como usamos auto-migration no startup, esperamos que sim.
-    # CORREÇÃO: Usar datetime.utcnow() para evitar erro de timezone no SQL Server
     cliente = db.query(Cliente).filter(
         Cliente.reset_token_hash == hashed_input,
         Cliente.reset_token_expiration > datetime.utcnow()
@@ -475,24 +433,17 @@ def redefinir_senha(req: RedefinirSenhaRequest, db: Session = Depends(get_db)):
     if not cliente:
         return JSONResponse(status_code=400, content={"detail": "Link inválido ou expirado. Solicite um novo."}) 
     
-    # 3. Atualiza a senha
     cliente.senha_hash = hash_senha(req.nova_senha)
-    
-    # 4. Invalida Sessões Ativas
     cliente.token = None
     cliente.token_expiration = None
-
-    # 5. Limpa o token de recuperação
     cliente.reset_token_hash = None
     cliente.reset_token_expiration = None
     db.commit()
 
-    logger.info(f"Senha redefinida com sucesso para o cliente {cliente.id}. Sessões invalidadas.")
     return {"msg": "Senha redefinida com sucesso. Faça login agora."}
 
-
 # =========================
-# Chat Geral (Busca SQL)
+# Chat / Admin
 # =========================
 @app.post("/chat")
 async def chat_search(msg: ChatMessage, db: Session = Depends(get_db)):
@@ -508,9 +459,6 @@ async def chat_search(msg: ChatMessage, db: Session = Depends(get_db)):
         return {"reply": "Não encontrei editais com esses termos. Tente algo mais geral."}
     return {"reply": "Encontrei estes editais:", "options": [{"id": r.id, "titulo": r.titulo} for r in resultados]}
 
-# =========================
-# Chat por Edital (RAG PDF)
-# =========================
 @app.post("/chat/edital/{edital_id}")
 async def chat_edital(edital_id: int, msg: ChatMessage, db: Session = Depends(get_db)):
     if not client:
@@ -539,11 +487,7 @@ async def chat_edital(edital_id: int, msg: ChatMessage, db: Session = Depends(ge
             logger.error(f"Erro ao ler PDF {url}: {e}")
     if not texto.strip():
         return {"reply": "Não consegui extrair texto do edital."}
-    
-    # TODO: Para escalar, implementar chunking e embeddings (Vector Search).
-    # Atualmente truncamos para evitar estouro de tokens/memória.
     texto = texto[:200_000]
-    
     response = client.chat.completions.create(
         model=DEPLOYMENT_NAME,
         messages=[
@@ -554,9 +498,6 @@ async def chat_edital(edital_id: int, msg: ChatMessage, db: Session = Depends(ge
     )
     return {"reply": response.choices[0].message.content}
 
-# =========================
-# Admin
-# =========================
 @app.post("/admin/login")
 def login_admin(login: LoginAdmin = Body(...), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == login.email).first()
@@ -571,9 +512,6 @@ def admin_area(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso restrito")
     return {"msg": f"Bem-vindo, {user['sub']}!"}
 
-# =========================
-# CRUD Editais (Admin)
-# =========================
 @app.post("/admin/editais")
 def criar_edital(dados: dict = Body(...), db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     if user.get("role") != "admin":
@@ -591,9 +529,7 @@ def criar_edital(dados: dict = Body(...), db: Session = Depends(get_db), user: d
     db.add(novo)
     db.commit()
     db.refresh(novo)
-    # Retorna link para a aplicação principal
-    frontend_url = FRONTEND_APP_URL
-    return {"msg": "Edital criado com sucesso", "id": novo.id, "share_link": f"{frontend_url}?id={novo.id}"}
+    return {"msg": "Edital criado com sucesso", "id": novo.id, "share_link": f"{FRONTEND_APP_URL}?id={novo.id}"}
 
 @app.put("/admin/editais/{edital_id}")
 def atualizar_edital(edital_id: int, dados: dict = Body(...), db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
