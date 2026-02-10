@@ -152,11 +152,6 @@ class RedefinirSenhaRequest(BaseModel):
     token: str
     nova_senha: str = Field(..., min_length=6, max_length=64)
 
-class AdminSetup(BaseModel):
-    email: str
-    senha: str
-    secret_key: str
-
 # =========================
 # Utils
 # =========================
@@ -208,7 +203,8 @@ async def log_requests(request: Request, call_next):
 # =========================
 @app.get("/ping")
 def ping():
-    return {"status": "ok", "time": datetime.utcnow().isoformat()}
+    # Usa UTC Aware
+    return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
 
 @app.get("/health")
 def health_check(db: Session = Depends(get_db)):
@@ -286,7 +282,8 @@ def cliente_me(cliente_token: str | None = Cookie(default=None), db: Session = D
     if not cliente.email_verificado:
         return JSONResponse(status_code=403, content={"logado": False, "msg": "Email não verificado"})
     
-    now = datetime.utcnow()
+    # CORREÇÃO: Usar UTC Aware para comparar com DB
+    now = datetime.now(timezone.utc)
 
     if cliente.token_expiration and now > cliente.token_expiration:
         return JSONResponse(status_code=401, content={"logado": False, "msg": "Sessão expirada"})
@@ -316,7 +313,8 @@ def cadastro_cliente(dados: CadastroCliente, db: Session = Depends(get_db)):
         politica_ok=dados.politica_ok,
         email_verificado=False,
         email_token=verificacao_token,
-        email_token_expiration=datetime.utcnow() + timedelta(hours=72)
+        # CORREÇÃO: Usar UTC Aware
+        email_token_expiration=datetime.now(timezone.utc) + timedelta(hours=72)
     )
     db.add(novo_cliente)
     db.commit()
@@ -339,7 +337,8 @@ def login_cliente(dados: LoginCliente, db: Session = Depends(get_db)):
 
     sessao_token = str(uuid.uuid4())
     cliente.token = sessao_token
-    cliente.token_expiration = datetime.utcnow() + timedelta(days=30)
+    # CORREÇÃO: Usar UTC Aware
+    cliente.token_expiration = datetime.now(timezone.utc) + timedelta(days=30)
     
     # Security cleanup
     if getattr(cliente, 'reset_token_hash', None):
@@ -357,8 +356,7 @@ def login_cliente(dados: LoginCliente, db: Session = Depends(get_db)):
     })
     
     # ==========================================================================
-    # CONFIGURAÇÃO CRÍTICA DE COOKIE (CORREÇÃO DE BUG)
-    # samesite='none' e secure=True são OBRIGATÓRIOS para Cross-Site (API != Frontend)
+    # CONFIGURAÇÃO CRÍTICA DE COOKIE
     # ==========================================================================
     response.set_cookie(
         key="cliente_token",
@@ -382,7 +380,8 @@ def verificar_email(token: str, db: Session = Depends(get_db)):
     if cliente.email_verificado:
         return RedirectResponse(url=f"{FRONTEND_LOGIN_URL}?verificado=true")
 
-    if cliente.email_token_expiration and datetime.utcnow() > cliente.email_token_expiration:
+    # CORREÇÃO: Usar UTC Aware
+    if cliente.email_token_expiration and datetime.now(timezone.utc) > cliente.email_token_expiration:
         return JSONResponse(status_code=400, content={"detail": "Este link de verificação expirou."}) 
     
     cliente.email_verificado = True
@@ -401,7 +400,8 @@ def esqueci_senha(req: EsqueciSenhaRequest, db: Session = Depends(get_db)):
     msg_padrao = "Se este e-mail estiver cadastrado, você receberá um link de recuperação."
 
     if cliente:
-        now = datetime.utcnow()
+        # CORREÇÃO: Usar UTC Aware
+        now = datetime.now(timezone.utc)
         exp = getattr(cliente, 'reset_token_expiration', None)
         
         if exp and now < exp:
@@ -430,9 +430,10 @@ def redefinir_senha(req: RedefinirSenhaRequest, db: Session = Depends(get_db)):
 
     hashed_input = hash_token(req.token)
     
+    # CORREÇÃO: Usar UTC Aware
     cliente = db.query(Cliente).filter(
         Cliente.reset_token_hash == hashed_input,
-        Cliente.reset_token_expiration > datetime.utcnow()
+        Cliente.reset_token_expiration > datetime.now(timezone.utc)
     ).first()
     
     if not cliente:
@@ -505,51 +506,11 @@ async def chat_edital(edital_id: int, msg: ChatMessage, db: Session = Depends(ge
 
 @app.post("/admin/login")
 def login_admin(login: LoginAdmin = Body(...), db: Session = Depends(get_db)):
-    logger.info(f"[ADMIN LOGIN] Tentativa para: {login.email}")
     user = db.query(User).filter(User.email == login.email).first()
-    
-    if not user:
-        logger.warning(f"[ADMIN LOGIN] Falha: Usuário {login.email} não encontrado.")
+    if not user or not verificar_senha(login.senha, user.senha_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
-    
-    # Validação da senha
-    if not verificar_senha(login.senha, user.senha_hash):
-        logger.warning(f"[ADMIN LOGIN] Falha: Senha incorreta para {login.email}.")
-        # Dica de debug: hash no banco começa com user.senha_hash[:5]...
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
-        
     token = criar_token({"sub": user.email, "role": user.role})
-    logger.info(f"[ADMIN LOGIN] Sucesso para: {login.email}")
     return {"access_token": token, "token_type": "bearer"}
-
-@app.post("/admin/setup-user")
-def setup_admin_user(dados: AdminSetup, db: Session = Depends(get_db)):
-    """
-    Rota auxiliar para criar/resetar usuário admin com hash correto.
-    Usa uma secret_key simples para proteção básica em ambiente de dev/teste.
-    """
-    # Defina isso no Azure App Settings ou use o valor padrão abaixo apenas para testes
-    SETUP_SECRET = os.getenv("ADMIN_SETUP_SECRET", "admin123_setup_key")
-    
-    if dados.secret_key != SETUP_SECRET:
-        logger.warning(f"[ADMIN SETUP] Tentativa não autorizada com chave: {dados.secret_key}")
-        raise HTTPException(status_code=403, detail="Chave de setup inválida")
-
-    user = db.query(User).filter(User.email == dados.email).first()
-    novo_hash = hash_senha(dados.senha)
-    
-    if user:
-        user.senha_hash = novo_hash
-        user.role = "admin"
-        action = "atualizado"
-    else:
-        user = User(email=dados.email, senha_hash=novo_hash, role="admin")
-        db.add(user)
-        action = "criado"
-    
-    db.commit()
-    logger.info(f"[ADMIN SETUP] Usuário {dados.email} {action} com sucesso.")
-    return {"msg": f"Admin {dados.email} {action} com sucesso.", "status": "ok"}
 
 @app.get("/admin/protected")
 def admin_area(user: dict = Depends(get_current_user)):
@@ -594,24 +555,3 @@ def atualizar_edital(edital_id: int, dados: dict = Body(...), db: Session = Depe
     edital.arquivos_json = json.dumps(attachments)
     db.commit()
     return {"msg": "Edital atualizado com sucesso"}
-    
-@app.post("/admin/login")
-def login_admin(login: LoginAdmin = Body(...), db: Session = Depends(get_db)):
-    try:
-        logger.info(f"[ADMIN LOGIN] Tentativa para: {login.email}")
-        user = db.query(User).filter(User.email == login.email).first()
-        if not user:
-            logger.warning(f"[ADMIN LOGIN] Falha: Usuário {login.email} não encontrado.")
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
-        
-        if not verificar_senha(login.senha, user.senha_hash):
-            logger.warning(f"[ADMIN LOGIN] Falha: Senha incorreta para {login.email}.")
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
-        
-        token = criar_token({"sub": user.email, "role": user.role})
-        logger.info(f"[ADMIN LOGIN] Sucesso para: {login.email}")
-        return {"access_token": token, "token_type": "bearer"}
-
-    except Exception as e:
-        logger.error(f"ERRO INTERNO LOGIN: {e}", exc_info=True)  # <--- log completo do stack trace
-        raise HTTPException(status_code=500, detail="Erro interno no login")
