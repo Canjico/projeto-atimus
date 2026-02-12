@@ -506,7 +506,9 @@ async def chat_edital(edital_id: int, msg: ChatMessage, db: Session = Depends(ge
 
 @app.post("/admin/login")
 def login_admin(login: LoginAdmin = Body(...), db: Session = Depends(get_db)):
+    logger.info(f"Tentativa login admin: {login.email}")
     user = db.query(User).filter(User.email == login.email).first()
+    logger.info(f"Usuário encontrado: {user}")
     if not user or not verificar_senha(login.senha, user.senha_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
     token = criar_token({"sub": user.email, "role": user.role})
