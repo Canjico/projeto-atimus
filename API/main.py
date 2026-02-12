@@ -504,15 +504,27 @@ async def chat_edital(edital_id: int, msg: ChatMessage, db: Session = Depends(ge
     )
     return {"reply": response.choices[0].message.content}
 
+
 @app.post("/admin/login")
 def login_admin(login: LoginAdmin = Body(...), db: Session = Depends(get_db)):
     logger.info(f"Tentativa login admin: {login.email}")
     user = db.query(User).filter(User.email == login.email).first()
     logger.info(f"Usuário encontrado: {user}")
+
+    if user:
+        logger.info(f"Hash DB: '{user.senha_hash}'")
+        logger.info(f"Senha digitada: '{login.senha}'")
+        resultado = verificar_senha(login.senha, user.senha_hash)
+        logger.info(f"Verificação senha: {resultado}")
+    else:
+        logger.info("Usuário não encontrado")
+
     if not user or not verificar_senha(login.senha, user.senha_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
+    
     token = criar_token({"sub": user.email, "role": user.role})
     return {"access_token": token, "token_type": "bearer"}
+
 
 @app.get("/admin/protected")
 def admin_area(user: dict = Depends(get_current_user)):
