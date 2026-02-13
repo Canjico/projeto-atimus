@@ -179,6 +179,18 @@ def mask_email(email: str) -> str:
     except Exception:
         return "***@***"
 
+def force_naive_utc(dt: datetime) -> datetime:
+    """
+    Garante que o datetime seja 'naive' (sem timezone) para comparações.
+    Se vier 'aware' do banco (driver), remove o timezone.
+    Assumimos que o banco guarda UTC e a aplicação compara com datetime.utcnow().
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        return dt.replace(tzinfo=None)
+    return dt
+
 def simular_envio_email(email: str, token: str, tipo: str = "verificacao"):
     if tipo == "verificacao":
         base_api_url = os.getenv("BASE_API_URL", "http://127.0.0.1:8000")
@@ -287,12 +299,13 @@ def cliente_me(cliente_token: str | None = Cookie(default=None), db: Session = D
         return JSONResponse(status_code=403, content={"logado": False, "msg": "Email não verificado"})
     
     now = datetime.utcnow()
+    token_expiration_naive = force_naive_utc(cliente.token_expiration)
 
-    if cliente.token_expiration and now > cliente.token_expiration:
+    if token_expiration_naive and now > token_expiration_naive:
         return JSONResponse(status_code=401, content={"logado": False, "msg": "Sessão expirada"})
     
     # Renovação de Sessão (Rolling Session)
-    if cliente.token_expiration and (cliente.token_expiration - now).days < 5:
+    if token_expiration_naive and (token_expiration_naive - now).days < 5:
         cliente.token_expiration = now + timedelta(days=30)
         db.commit()
     
@@ -382,7 +395,8 @@ def verificar_email(token: str, db: Session = Depends(get_db)):
     if cliente.email_verificado:
         return RedirectResponse(url=f"{FRONTEND_LOGIN_URL}?verificado=true")
 
-    if cliente.email_token_expiration and datetime.utcnow() > cliente.email_token_expiration:
+    expiration_naive = force_naive_utc(cliente.email_token_expiration)
+    if expiration_naive and datetime.utcnow() > expiration_naive:
         return JSONResponse(status_code=400, content={"detail": "Este link de verificação expirou."}) 
     
     cliente.email_verificado = True
@@ -402,9 +416,9 @@ def esqueci_senha(req: EsqueciSenhaRequest, db: Session = Depends(get_db)):
 
     if cliente:
         now = datetime.utcnow()
-        exp = getattr(cliente, 'reset_token_expiration', None)
+        exp_naive = force_naive_utc(getattr(cliente, 'reset_token_expiration', None))
         
-        if exp and now < exp:
+        if exp_naive and now < exp_naive:
              return {"msg": msg_padrao}
 
         cliente.reset_token_hash = None
