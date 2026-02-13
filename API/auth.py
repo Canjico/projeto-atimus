@@ -3,7 +3,7 @@
 import os
 import secrets
 import hashlib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Dict
 
 from fastapi import HTTPException, Depends, status
@@ -103,8 +103,8 @@ def criar_token(dados: Dict) -> str:
     secret = _get_jwt_secret()
 
     payload = dados.copy()
-    # Usando UTC Aware para consistência
-    expire = datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
+    # Usando UTC Naive para compatibilidade com sistema legado/drivers simples
+    expire = datetime.utcnow() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
     payload.update({"exp": expire})
 
     return jwt.encode(payload, secret, algorithm=ALGORITHM)
