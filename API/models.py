@@ -2,7 +2,7 @@
 
 from sqlalchemy import Column, Integer, String, Date, Text, DateTime, Boolean
 from sqlalchemy.dialects.mssql import NVARCHAR
-from datetime import datetime, timezone
+from datetime import datetime
 
 from .database import Base
 
@@ -54,13 +54,14 @@ class Cliente(Base):
     # Verificação de E-mail
     # Unique=True + Index=True: garante performance na busca pelo token de verificação
     email_token = Column(NVARCHAR(255), unique=True, index=True)
-    # Timezone=True para evitar problemas de fuso horário no Azure SQL
-    email_token_expiration = Column(DateTime(timezone=True), nullable=True)
+    
+    # Removido timezone=True para compatibilidade com DATETIME do SQL Server
+    email_token_expiration = Column(DateTime, nullable=True)
 
     # Recuperação de Senha (HARDENING)
     # Armazenamos apenas o HASH do token. Se o banco vazar, o token raw continua seguro.
     reset_token_hash = Column(NVARCHAR(255), nullable=True, index=True)
-    reset_token_expiration = Column(DateTime(timezone=True), nullable=True)
+    reset_token_expiration = Column(DateTime, nullable=True)
 
     # Consentimento e Sessão
     contato_ok = Column(Boolean, default=False)
@@ -68,7 +69,7 @@ class Cliente(Base):
     
     # Token de sessão (cookie)
     token = Column(NVARCHAR(255), unique=True, index=True)
-    token_expiration = Column(DateTime(timezone=True), nullable=True)
+    token_expiration = Column(DateTime, nullable=True)
     
-    # Sempre UTC para consistência
-    criado_em = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    # Sempre UTC para consistência (Naive datetime)
+    criado_em = Column(DateTime, default=datetime.utcnow)
